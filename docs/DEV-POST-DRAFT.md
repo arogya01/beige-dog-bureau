@@ -18,7 +18,9 @@ Beige Dog Bureau ranks who is still in care today. The overlooked index is days 
 
 ## Demo
 
-Live: *(deployment URL)*
+**https://beige-dog-bureau.vercel.app**
+
+The board reads the warehouse live — the header says `LIVE FEED` when it is talking to Snowflake and `SNAPSHOT` when it has fallen back. Every dog links to its own file, where Cortex writes a letter from that row alone.
 
 ## Code
 
