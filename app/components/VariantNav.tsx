@@ -9,7 +9,7 @@ const VARIANTS = [
 export function VariantNav({ current }: { current: "A" | "B" | "C" | "hub" }) {
   return (
     <nav className="variant-nav" aria-label="Layout variants">
-      <Link href="/" className={current === "hub" ? "is-current" : undefined}>
+      <Link href="/compare" className={current === "hub" ? "is-current" : undefined}>
         Compare
       </Link>
       {VARIANTS.map((v) => (

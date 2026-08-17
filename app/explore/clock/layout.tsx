@@ -1,18 +1,5 @@
 import type { Metadata } from "next";
-import { Fragment_Mono, Oswald } from "next/font/google";
-
-const oswald = Oswald({
-  subsets: ["latin"],
-  variable: "--font-oswald",
-  display: "swap",
-});
-
-const fragmentMono = Fragment_Mono({
-  weight: "400",
-  subsets: ["latin"],
-  variable: "--font-fragment",
-  display: "swap",
-});
+import { boardFontClass } from "@/app/components/boardFonts";
 
 export const metadata: Metadata = {
   title: "Departure board",
@@ -21,5 +8,5 @@ export const metadata: Metadata = {
 };
 
 export default function ClockLayout({ children }: { children: React.ReactNode }) {
-  return <div className={`${oswald.variable} ${fragmentMono.variable}`}>{children}</div>;
+  return <div className={boardFontClass}>{children}</div>;
 }

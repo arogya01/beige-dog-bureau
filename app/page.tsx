@@ -1,33 +1,19 @@
-import Link from "next/link";
-import { SiteChrome } from "@/app/components/SiteChrome";
+import type { Metadata } from "next";
+import { DepartureBoard } from "@/app/components/DepartureBoard";
+import { boardFontClass } from "@/app/components/boardFonts";
 
-export default function HubPage() {
+export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "No departures · Beige Dog Bureau",
+  description:
+    "Dogs still in care at Austin Animal Center. An all-black coat waits 34 days against 31 — the same. A bully-type staff label on an adult waits 62.5 against 26. The coat is not the wait. The label is.",
+};
+
+export default function HomePage() {
   return (
-    <SiteChrome current="hub">
-      <p className="kicker">Pick a first screen</p>
-      <h1 className="story-title">Same bulletin. Three ways in.</h1>
-      <p className="prose">
-        All three use the same Austin data and the same ranking. They only
-        change how fast a stranger understands what this is. Open each, then
-        come back.
-      </p>
-      <div className="chooser">
-        <Link className="choice" href="/plain">
-          <b>A</b>
-          <h2>Plain</h2>
-          <p>One sentence, two bars, then the waiting list. Fastest to scan.</p>
-        </Link>
-        <Link className="choice" href="/story">
-          <b>B</b>
-          <h2>Story</h2>
-          <p>Myth, then the coat, then the label. The list comes last.</p>
-        </Link>
-        <Link className="choice" href="/one">
-          <b>C</b>
-          <h2>One dog</h2>
-          <p>Start on the longest wait. Ask why. Then show everyone else.</p>
-        </Link>
-      </div>
-    </SiteChrome>
+    <div className={boardFontClass}>
+      <DepartureBoard />
+    </div>
   );
 }
