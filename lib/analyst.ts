@@ -26,7 +26,7 @@
 
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { snowflakeConfigured, snowflakeHeaders, snowflakeHost } from "./snowflake";
+import { CORTEX_TIMEOUT_MS, snowflakeConfigured, snowflakeHeaders, snowflakeHost } from "./snowflake";
 
 export const SEMANTIC_MODEL_PATH = join(process.cwd(), "semantic", "census.yaml");
 
@@ -156,6 +156,7 @@ export async function askAnalyst(
 
   const res = await fetch(`https://${snowflakeHost()}/api/v2/cortex/analyst/message`, {
     method: "POST",
+    signal: AbortSignal.timeout(CORTEX_TIMEOUT_MS),
     headers: snowflakeHeaders(),
     body: JSON.stringify(
       file ? { messages, semantic_model_file: file } : { messages, semantic_model: model },

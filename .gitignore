@@ -9,3 +9,7 @@ dist/
 .next
 tsconfig.tsbuildinfo
 .env*
+__pycache__/
+*.pyc
+*.bak
+NEED-FROM-YOU.md

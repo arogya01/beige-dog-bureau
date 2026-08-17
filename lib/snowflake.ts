@@ -25,10 +25,39 @@ function host(): string {
   return `${account}.snowflakecomputing.com`;
 }
 
-export async function runSql(statement: string): Promise<string[][]> {
+/**
+ * A dead PAT fails fast and the caller falls back to the snapshot. A *slow*
+ * one does not fail at all - it hangs, and a serverless function that hangs
+ * returns a 504, which is a blank error page rather than the bulletin. The
+ * likeliest cause is mundane: the warehouse auto-suspends, and the first
+ * visitor after an idle spell pays the resume cost.
+ *
+ * So every call carries a wall-clock budget. Blowing it raises an AbortError,
+ * which is an ordinary throw the existing catch blocks already handle. Reading
+ * a slightly stale snapshot in 200ms beats a live answer nobody waits for.
+ */
+export const CENSUS_TIMEOUT_MS = 8_000;
+export const CORTEX_TIMEOUT_MS = 25_000;
+
+function deadline(ms: number) {
+  const started = Date.now();
+  return {
+    /** Remaining budget, floored at 1ms so an expired deadline still aborts. */
+    signal: () => AbortSignal.timeout(Math.max(1, ms - (Date.now() - started))),
+    /** Seconds left, for Snowflake's own server-side statement timeout. */
+    seconds: () => Math.max(1, Math.ceil((ms - (Date.now() - started)) / 1000)),
+  };
+}
+
+export async function runSql(
+  statement: string,
+  timeoutMs: number = CENSUS_TIMEOUT_MS,
+): Promise<string[][]> {
   const url = `https://${host()}/api/v2/statements`;
+  const clock = deadline(timeoutMs);
   const res = await fetch(url, {
     method: "POST",
+    signal: clock.signal(),
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
@@ -37,7 +66,7 @@ export async function runSql(statement: string): Promise<string[][]> {
     },
     body: JSON.stringify({
       statement,
-      timeout: 60,
+      timeout: clock.seconds(),
       warehouse: process.env.SNOWFLAKE_WAREHOUSE || "COMPUTE_WH",
       database: process.env.SNOWFLAKE_DATABASE || "SHELTER",
       schema: process.env.SNOWFLAKE_SCHEMA || "AAC",
@@ -61,6 +90,7 @@ export async function runSql(statement: string): Promise<string[][]> {
   for (let p = 1; p < partitions && body.statementHandle; p += 1) {
     const pRes = await fetch(`${url}/${body.statementHandle}?partition=${p}`, {
       method: "GET",
+      signal: clock.signal(),
       headers: snowflakeHeaders(),
     });
     const pBody = (await pRes.json()) as { data?: string[][]; message?: string };
@@ -161,13 +191,15 @@ export async function runSqlWithColumns(
   const maxRows = opts.maxRows ?? 200;
   const base = `https://${host()}/api/v2/statements`;
   const headers = snowflakeHeaders();
+  const clock = deadline((opts.timeoutSeconds ?? 25) * 1000);
 
   let res = await fetch(base, {
     method: "POST",
     headers,
+    signal: clock.signal(),
     body: JSON.stringify({
       statement,
-      timeout: opts.timeoutSeconds ?? 60,
+      timeout: clock.seconds(),
       warehouse: process.env.SNOWFLAKE_WAREHOUSE || "COMPUTE_WH",
       database: process.env.SNOWFLAKE_DATABASE || "SHELTER",
       schema: process.env.SNOWFLAKE_SCHEMA || "AAC",
@@ -177,10 +209,13 @@ export async function runSqlWithColumns(
   let body = (await res.json()) as StatementBody;
   if (!res.ok) throw new Error(body.message || `Snowflake HTTP ${res.status}`);
 
+  // Poll until the statement lands or the budget runs out - whichever comes
+  // first. Polling on a fixed iteration count instead would outlive the
+  // function itself and turn a slow query into a 504.
   const handle = body.statementHandle;
-  for (let i = 0; body.data === undefined && handle && i < 40; i += 1) {
+  while (body.data === undefined && handle && clock.seconds() > 1) {
     await new Promise((r) => setTimeout(r, opts.pollMs ?? 1500));
-    res = await fetch(`${base}/${handle}`, { method: "GET", headers });
+    res = await fetch(`${base}/${handle}`, { method: "GET", headers, signal: clock.signal() });
     body = (await res.json()) as StatementBody;
     if (!res.ok) throw new Error(body.message || `Snowflake HTTP ${res.status}`);
   }
@@ -203,6 +238,7 @@ export async function cortexComplete(system: string, user: string): Promise<stri
   const url = `https://${host()}/api/v2/cortex/v1/chat/completions`;
   const res = await fetch(url, {
     method: "POST",
+    signal: AbortSignal.timeout(CORTEX_TIMEOUT_MS),
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",

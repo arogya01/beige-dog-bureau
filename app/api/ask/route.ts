@@ -47,6 +47,11 @@ import {
 } from "@/lib/snowflake";
 
 export const dynamic = "force-dynamic";
+// Analyst plans, then we execute, then Cortex narrates - three round trips to a
+// warehouse that may be resuming. Each leg has its own AbortSignal; this is the
+// outer wall, set above their sum so a timeout surfaces as our explanatory
+// payload rather than the platform's 504 page.
+export const maxDuration = 60;
 
 const MAX_QUESTION = 500;
 const MAX_ROWS = 200;
@@ -313,7 +318,10 @@ async function publishedFindings(): Promise<PublishedFinding[] | null> {
       `SELECT label, med_yes, med_no, delta_days, p_value, n_yes, n_no, cohort_n
          FROM SHELTER.AAC.FINDINGS
         ORDER BY split_id`,
-      { maxRows: 20 },
+      // Seven cached rows out of a tiny table. If it cannot answer in eight
+      // seconds the warehouse is cold, and the letter reads fine without the
+      // context line - it must not eat the budget the letter itself needs.
+      { maxRows: 20, timeoutSeconds: 8 },
     );
     if (!res.rows.length) return null;
     const rows: PublishedFinding[] = res.rows.map((r) => ({
