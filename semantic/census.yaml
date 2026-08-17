@@ -1,0 +1,1381 @@
+# =====================================================================
+# Beige Dog Bureau - Cortex Analyst semantic model
+# =====================================================================
+# Target: SHELTER.AAC (Austin Animal Center open data, dogs only).
+# Consumed by: lib/analyst.ts -> POST /api/v2/cortex/analyst/message
+#              (passed inline as `semantic_model`, or from the stage
+#               @SHELTER.AAC.SEMANTIC as `semantic_model_file`).
+#
+# WHY THIS FILE IS LONG. Cortex Analyst writes SQL from these
+# descriptions and nothing else. Every domain trap in this dataset that
+# is not written down here becomes a wrong answer with a confident
+# sentence attached. The four traps, all of which cost real money if
+# they leak into a published number:
+#
+#   1. animal_id is REUSED across visits. 343 dogs have more than one
+#      stay. A row is a STAY, not an animal. COUNT(*) is stays.
+#   2. days_in_care counts to TODAY for a dog still in care, and to the
+#      outcome date for a dog that left. The two are not the same
+#      measurement and must not be pooled.
+#   3. "Adopted" means outcome_status ILIKE 'Adopted%' (2,821 dogs).
+#      Reclaimed-by-owner is NOT an adoption; it is an owner collecting
+#      a lost dog off the stray hold, median 3 days, and folding it in
+#      manufactures a fake effect in every split.
+#   4. The overlooked index deliberately EXCLUDES coat colour. That is
+#      the thesis of the publication, not an oversight.
+# =====================================================================
+name: beige_dog_bureau_census
+description: >-
+  The Beige Dog Bureau census of Austin Animal Center. Every dog admitted to
+  Austin Animal Center between 2025-05-04 and 2026-08-15, the dogs still
+  waiting in care today, and the published statistical findings about which
+  dogs wait longest and which adoptions come undone.
+
+  This warehouse exists to answer one question honestly: does an all-black coat
+  make a dog wait longer to be adopted? The answer in this data is no. What
+  does predict a long wait is the bully-type BREED LABEL written in the
+  intake paperwork. Visitors are encouraged to interrogate that claim
+  directly - to go looking for a coat-colour effect and fail to find one.
+
+  Grain warning that applies to the whole model: a row in a dog table is a
+  STAY (one admission), not an animal. The shelter reuses animal_id across
+  visits, so 6,084 canine stays belong to only 5,685 distinct dogs. Count
+  stays unless the question is explicitly about distinct animals.
+
+tables:
+
+  # -------------------------------------------------------------------
+  # 1. The bulletin: dogs physically in the shelter right now.
+  # -------------------------------------------------------------------
+  - name: open_dog_census
+    description: >-
+      THE DOGS STILL IN CARE TODAY. 593 open stays: dogs that were admitted to
+      Austin Animal Center and have no recorded outcome yet, so as far as the
+      published data knows they are still in the building. One row per open
+      stay.
+
+      USE THIS TABLE when the question is about dogs who are waiting NOW,
+      who has waited longest, who is currently overlooked, what is in the
+      shelter today, how many dogs are still there, or anything naming a
+      specific dog by name or id.
+
+      DO NOT USE THIS TABLE to measure how long adoption takes. These dogs
+      have not been adopted - their wait is still running. Measuring adoption
+      speed from unfinished waits is the single easiest way to get a wrong
+      answer here. For adoption speed use adopted_dog_cohort instead.
+    synonyms:
+      - census
+      - bulletin
+      - dogs in care
+      - dogs still waiting
+      - current dogs
+      - open stays
+      - the kennel
+      - who is still here
+    base_table:
+      database: SHELTER
+      schema: AAC
+      table: CENSUS
+    primary_key:
+      columns:
+        - STAY_ID
+
+    dimensions:
+      - name: stay_id
+        expr: STAY_ID
+        data_type: TEXT
+        description: >-
+          Unique id for this admission. This is the intake record id, and it is
+          the identifier the public case-file pages are keyed on. It is unique;
+          animal_id is not.
+        synonyms: [case id, file number, stay, admission id, record id]
+        unique: true
+
+      - name: animal_id
+        expr: ANIMAL_ID
+        data_type: TEXT
+        description: >-
+          The shelter's id for the ANIMAL, e.g. 'A912345'. CRITICAL: this is
+          reused every time the same dog comes back. It is NOT unique in this
+          table's parent and it is NOT a row key. If someone asks "how many
+          dogs", decide whether they mean admissions (count stays) or
+          individuals (count distinct animal_id).
+        synonyms: [animal number, a-number, dog id, shelter id]
+
+      - name: name
+        expr: NAME
+        data_type: TEXT
+        description: >-
+          Cleaned display name. Empty string when the dog arrived with no name.
+          Austin's raw feed writes placeholder names with a leading asterisk
+          ('*Bruno') and sometimes writes an id where a name should be; those
+          are cleaned out here.
+        synonyms: [dog name, called, what is the dog called]
+        sample_values: ["Bruno", "Luna", "Bear", ""]
+
+      - name: name_raw
+        expr: NAME_RAW
+        data_type: TEXT
+        description: >-
+          The name exactly as Austin Animal Center typed it, before cleaning.
+          Useful only for auditing the cleaning rule.
+        synonyms: [raw name, original name, name as recorded]
+
+      - name: unnamed
+        expr: UNNAMED
+        data_type: BOOLEAN
+        description: >-
+          TRUE when the dog arrived with no name on the paperwork. Read this
+          carefully before drawing a conclusion from it: in this feed
+          "unnamed" is largely a proxy for "neonatal litter" - 205 of the 315
+          unnamed adopted dogs were under six months old - so unnamed dogs
+          actually leave FASTER, not slower. The overlooked index still adds
+          20 points for it, which the returns analysis does not support.
+        synonyms: [no name, nameless, arrived without a name, unnamed at intake]
+
+      - name: breed
+        expr: BREED
+        data_type: TEXT
+        description: >-
+          The primary breed string as written by the intake officer. This is a
+          LABEL, a human guess from appearance, not a genetic test - which is
+          the entire point of the publication. 167 distinct strings appear
+          across the dataset. Join to breed_labels for the AI classification
+          of this string.
+        synonyms: [breed label, breed, what breed, type of dog, breed on the paperwork]
+        sample_values:
+          - American Pit Bull Terrier
+          - Labrador Retriever
+          - German Shepherd
+          - American Staffordshire Terrier
+          - Chihuahua - Smooth
+          - Australian Cattle Dog
+          - Mastiff
+
+      - name: color
+        expr: COLOR
+        data_type: TEXT
+        description: >-
+          Primary coat colour as recorded at intake. The feed spells mixed
+          coats out in full ('Black Brindle', 'Black Smoke'), so a bare 'Black'
+          genuinely means an all-black dog. There is no secondary_colour column
+          on the intake side, so "any black in the coat" cannot be answered -
+          only "primary colour is Black". Coat colour is recorded here and can
+          be freely analysed, but it deliberately contributes ZERO points to
+          the overlooked index.
+        synonyms: [coat, colour, coat colour, what colour, fur]
+        sample_values: ["Black", "White", "Brown", "Tan", "Brown Brindle", "Blue", "Tri Color"]
+
+      - name: sex
+        expr: SEX
+        data_type: TEXT
+        description: Sex recorded at intake.
+        synonyms: [gender, male or female]
+        sample_values: ["Male", "Female", "Unknown"]
+
+      - name: source_name
+        expr: SOURCE_NAME
+        data_type: TEXT
+        description: >-
+          How the dog arrived. 'Stray' and 'ACO - Impound' both mean picked up
+          loose (ACO = Animal Control Officer). 'Owner Surrender' means a
+          person handed the dog in. 'Returns' means the dog was brought back
+          after a previous exit from this shelter.
+        synonyms: [intake source, how they arrived, admitted as, intake type, route in]
+        sample_values: ["ACO - Impound", "Stray", "Owner Surrender", "Returns", "Agency", "Abandoned"]
+
+      - name: found_address
+        expr: FOUND_ADDRESS
+        data_type: TEXT
+        description: >-
+          Where a stray was picked up, as a street address in Austin. Blank for
+          owner surrenders. This is a shelter intake record, not a location
+          service - never present it as where a dog is now.
+        synonyms: [where found, pickup location, found at, address]
+
+      - name: age_band
+        expr: AGE_BAND
+        data_type: TEXT
+        description: >-
+          Age bucket at intake. 'puppy' is under 6 months, 'young' is 6 months
+          to 2 years, 'adult' is 2 to 7 years, 'senior' is 7 years and over,
+          'unknown' means no date of birth was recorded. The adult band is the
+          one the headline finding is computed on, because it holds age still
+          while the breed label varies.
+        synonyms: [age group, age bracket, life stage, how old, puppy or adult]
+        sample_values: ["young", "adult", "unknown", "puppy", "senior"]
+
+      - name: bully_label
+        expr: BULLY_LABEL
+        data_type: BOOLEAN
+        description: >-
+          TRUE when the breed string carries a bully-type label - pit bull,
+          Staffordshire, American Bully. This is the keyword rule that the site
+          ships. It is a strict SUBSET of the AI classification in
+          breed_labels.ai_bully_label, which additionally catches mastiffs,
+          bull terriers and cane corsos. THIS FLAG IS THE HEADLINE FINDING:
+          an adult carrying it waits a median 62.5 days against 26 for other
+          adults. It says nothing about the dog and everything about the
+          paperwork.
+        synonyms: [pit bull, pitbull, bully breed, bully type, staffordshire, pittie, bully label, restricted breed]
+
+      - name: is_black_coat
+        expr: (COLOR = 'Black')
+        data_type: BOOLEAN
+        description: >-
+          TRUE when the primary coat colour is exactly 'Black', i.e. an
+          all-black dog. Provided so the folk claim about black dogs can be
+          tested directly on the current census. Note that any difference seen
+          here is descriptive only - the tested claim lives in
+          published_findings, where it is not significant.
+        synonyms: [black dog, all black, black coat, black dog syndrome]
+
+    time_dimensions:
+      - name: intake_date
+        expr: INTAKE_DATE
+        data_type: DATE
+        description: >-
+          The day this dog was admitted. Data window runs 2025-05-04 to
+          2026-08-15. For dogs in this table the clock started here and is
+          still running.
+        synonyms: [admitted, arrival date, date in, came in, intake day, when did they arrive]
+
+    facts:
+      - name: days_in_care
+        expr: DAYS_IN_CARE
+        data_type: NUMBER
+        description: >-
+          Days waited SO FAR. Because every dog in this table is still in care,
+          this is measured from intake to TODAY and it is still increasing - it
+          is a censored, in-progress wait, not a completed one. The longest
+          open wait in the census is over 450 days. Do not compare this number
+          against the completed adoption waits in adopted_dog_cohort as if they
+          were the same measurement.
+        synonyms: [days waiting, days in shelter, how long, wait, length of stay, time in care]
+
+      - name: age_years
+        expr: AGE_YEARS
+        data_type: NUMBER
+        description: >-
+          Age in years at intake, derived from date of birth. NULL when no date
+          of birth was recorded (the 'unknown' age band). Range 0 to 16.
+        synonyms: [age, age in years, years old]
+
+      - name: overlooked_index
+        expr: "INDEX"
+        data_type: NUMBER
+        description: >-
+          The overlooked index, the sort order of the public bulletin. It is a
+          transparent hand-written score, not a model:
+          days_in_care + 20 if unnamed + 20 if bully_label + 10 if adult.
+          COAT COLOUR CONTRIBUTES NOTHING TO THIS SCORE, on purpose - that
+          exclusion is the editorial thesis of the whole publication. Range 1
+          to 471. Higher means more overlooked.
+        synonyms: [index, overlooked score, ranking, priority score, how overlooked]
+
+    metrics:
+      - name: open_dog_count
+        expr: COUNT(STAY_ID)
+        description: >-
+          Number of dogs currently in care, counted as open stays. This is the
+          headline census number and it is 593. Use this for "how many dogs are
+          still in care".
+        synonyms: [dogs in care, how many dogs, census size, open count, still waiting]
+
+      - name: distinct_animals_in_care
+        expr: COUNT(DISTINCT ANIMAL_ID)
+        description: >-
+          Number of distinct animals currently in care. Differs from
+          open_dog_count only if the same animal_id somehow appears twice; use
+          it only when the question is explicitly about individual animals
+          rather than admissions.
+        synonyms: [distinct dogs, individual animals, unique dogs]
+
+      - name: median_days_waiting
+        expr: MEDIAN(DAYS_IN_CARE)
+        description: >-
+          Median days waited so far by dogs still in care. Median, not mean:
+          shelter wait times have a long right tail and the mean is dragged by
+          a handful of very long stays.
+        synonyms: [typical wait so far, median wait, median days]
+
+      - name: longest_wait_days
+        expr: MAX(DAYS_IN_CARE)
+        description: The longest wait currently running in the census.
+        synonyms: [longest wait, most days, waited the longest]
+
+    filters:
+      - name: bully_labelled
+        expr: BULLY_LABEL
+        description: Only dogs whose breed string carries a bully-type label.
+        synonyms: [pit bulls, bully breeds, pitties]
+
+      - name: black_coat
+        expr: COLOR = 'Black'
+        description: Only dogs whose primary coat colour is Black.
+        synonyms: [black dogs, all black dogs]
+
+      - name: adults_only
+        expr: AGE_BAND = 'adult'
+        description: >-
+          Only dogs aged 2 to 7 at intake. This is the band the headline
+          bully-label finding is computed on.
+        synonyms: [adults, grown dogs, aged two to seven]
+
+      - name: waiting_over_six_months
+        expr: DAYS_IN_CARE >= 180
+        description: Dogs who have been in care 180 days or more.
+        synonyms: [long stayers, over six months, long waits]
+
+  # -------------------------------------------------------------------
+  # 2. The evidence: completed adoptions, one row per dog.
+  # -------------------------------------------------------------------
+  - name: adopted_dog_cohort
+    description: >-
+      THE EVIDENCE TABLE. 2,821 dogs that were actually adopted out of Austin
+      Animal Center, one row each, with the completed length of their wait and
+      the four flags the publication tests. This is the cohort every published
+      finding is computed on.
+
+      USE THIS TABLE for any question about how long adoption TAKES, or
+      whether some attribute makes a dog wait longer or shorter. This is the
+      table a visitor should use to check the coat-colour claim for
+      themselves: group by black_coat, take the median of days_in_care, and
+      watch the difference fail to appear.
+
+      COHORT DEFINITION, and it matters: adopted means outcome_status ILIKE
+      'Adopted%' - it includes Adopted Altered, Adopted Offsite and the other
+      paperwork variants, because those are all a stranger taking a dog home.
+      It EXCLUDES Reclaimed (890 dogs, median 3 days), Returned To Owner, and
+      Redemption Offsite - those are owners collecting their own lost dog off
+      the stray hold, and folding them in would manufacture a fake effect in
+      every single split.
+
+      Because every stay here is finished, days_in_care is a completed
+      measurement and medians computed from it are honest.
+    synonyms:
+      - adopted dogs
+      - adoptions
+      - the cohort
+      - dogs that were adopted
+      - completed adoptions
+      - evidence table
+      - how long adoption takes
+    base_table:
+      database: SHELTER
+      schema: AAC
+      table: FINDINGS_COHORT
+    primary_key:
+      columns:
+        - STAY_ID
+
+    dimensions:
+      - name: stay_id
+        expr: STAY_ID
+        data_type: TEXT
+        description: Unique id of the admission that ended in this adoption.
+        synonyms: [case id, stay, adoption record]
+        unique: true
+
+      - name: color
+        expr: COLOR
+        data_type: TEXT
+        description: >-
+          Primary coat colour recorded at intake, for the dog that was adopted.
+        synonyms: [coat, colour, coat colour, fur]
+        sample_values: ["Black", "White", "Brown", "Tan", "Brown Brindle", "Tri Color"]
+
+      - name: breed
+        expr: BREED
+        data_type: TEXT
+        description: >-
+          The primary breed string written at intake for the dog that was
+          adopted. A human label from appearance, not a DNA result.
+        synonyms: [breed label, breed, type of dog]
+        sample_values:
+          - American Pit Bull Terrier
+          - Labrador Retriever
+          - Chihuahua - Smooth
+          - German Shepherd
+
+      - name: black_coat
+        expr: BLACK_COAT
+        data_type: BOOLEAN
+        description: >-
+          TRUE when the primary coat colour is exactly 'Black' - an all-black
+          dog. THIS IS THE FLAG THE FOLK CLAIM IS ABOUT. Grouping the cohort on
+          it gives a median of 24 days for black dogs against 23 for every
+          other coat: a one-day difference, which a 5,000-shuffle permutation
+          test scores at p = 0.6871, i.e. entirely consistent with chance.
+          Among adults only it is 34 against 31, p = 0.4203. There is no black
+          dog penalty in this data.
+        synonyms: [black, all black, black dog, black coat, black dog syndrome]
+
+      - name: bully_label
+        expr: BULLY_LABEL
+        data_type: BOOLEAN
+        description: >-
+          TRUE when the breed string carries a bully-type label (pit bull,
+          Staffordshire, American Bully). THIS IS THE FLAG THAT ACTUALLY
+          PREDICTS THE WAIT: 38 days against 21 across the whole cohort, and
+          62.5 against 26 once you restrict to adults so age cannot explain it.
+          Both at p = 0.0002, the floor of a 5,000-shuffle test.
+        synonyms: [pit bull, pitbull, bully breed, bully type, staffordshire, pittie, bully label]
+
+      - name: small_breed
+        expr: SMALL_BREED
+        data_type: BOOLEAN
+        description: >-
+          TRUE when the breed string is a small companion breed - chihuahua,
+          dachshund, 'Poodle - Miniature', 'Schnauzer - Miniature' and so on.
+          490 dogs across 19 breed strings. Small dogs leave fast: median 9
+          days against 27.
+        synonyms: [small dog, little dog, toy breed, lap dog, small breed]
+
+      - name: unnamed
+        expr: UNNAMED
+        data_type: BOOLEAN
+        description: >-
+          TRUE when the dog arrived with no name. Handle with care: unnamed
+          dogs in this feed leave FASTER (7 days against 27), because
+          "unnamed" mostly means "neonatal puppy from a litter" - 205 of the
+          315 unnamed adopted dogs are under six months old. The effect
+          survives inside the adult band (8 against 33, p = 0.0094) but on
+          only 42 dogs. Never state that namelessness costs a dog time; this
+          data says the opposite.
+        synonyms: [no name, nameless, arrived unnamed]
+
+      - name: adult
+        expr: ADULT
+        data_type: BOOLEAN
+        description: >-
+          TRUE when the dog was between 2 and 7 years old at intake. 775 of the
+          2,821 adopted dogs. Restricting to this band is how the publication
+          holds age constant, so that the bully-label gap cannot be explained
+          away as "those dogs were just older".
+        synonyms: [adult, grown, aged two to seven, middle aged]
+
+    facts:
+      - name: days_in_care
+        expr: DAYS_IN_CARE
+        data_type: NUMBER
+        description: >-
+          COMPLETED wait: days from admission to the day the dog was adopted.
+          Unlike the census this is finished and will not change. Zero negative
+          values and no impossible outliers, so no filtering is needed. Always
+          summarise it with MEDIAN rather than AVG - the distribution has a
+          long right tail and the mean misreports the typical dog.
+        synonyms: [days to adoption, wait, how long it took, length of stay, days in shelter]
+
+      - name: age_years
+        expr: AGE_YEARS
+        data_type: NUMBER
+        description: Age in years at intake. 0 to 16. NULL when no date of birth was recorded.
+        synonyms: [age, age in years, years old]
+
+    metrics:
+      - name: adopted_dog_count
+        expr: COUNT(STAY_ID)
+        description: >-
+          Number of adopted dogs. The whole cohort is 2,821. (Note for anyone
+          holding an older draft of the README: the figure 3,121 does not
+          reconcile against this warehouse and is wrong.)
+        synonyms: [how many adopted, adoptions, cohort size, number of dogs]
+
+      - name: median_days_to_adoption
+        expr: MEDIAN(DAYS_IN_CARE)
+        description: >-
+          Median completed days from intake to adoption. THE PRIMARY MEASURE OF
+          THE WHOLE PUBLICATION. Group it by black_coat, bully_label,
+          small_breed or unnamed to reproduce any published split by hand.
+        synonyms: [median wait, typical wait, how long adoption takes, median days to adoption]
+
+      - name: mean_days_to_adoption
+        expr: AVG(DAYS_IN_CARE)
+        description: >-
+          Mean days to adoption. Provided for completeness only. Prefer
+          median_days_to_adoption: this distribution is heavily right-skewed
+          and the mean overstates the typical dog's wait.
+        synonyms: [average wait, mean days]
+
+    filters:
+      - name: adults_only
+        expr: ADULT
+        description: >-
+          Restrict to dogs aged 2 to 7 at intake - the 775-dog band the
+          headline finding is computed on, chosen so that age cannot explain
+          the breed-label gap.
+        synonyms: [adults, grown dogs, only adults]
+
+      - name: black_coat_only
+        expr: BLACK_COAT
+        description: Restrict to all-black dogs.
+        synonyms: [black dogs]
+
+      - name: bully_labelled_only
+        expr: BULLY_LABEL
+        description: Restrict to dogs whose breed string carries a bully-type label.
+        synonyms: [pit bulls, bully breeds]
+
+  # -------------------------------------------------------------------
+  # 3. The receipts: permutation-tested wait-time findings.
+  # -------------------------------------------------------------------
+  - name: published_findings
+    description: >-
+      THE RECEIPTS FOR WAIT TIME. Seven published splits, each one a real
+      5,000-permutation test run inside Snowflake against the adopted cohort.
+      One row per split. Nothing in this table is typed by hand; the whole
+      table is rebuilt by sql/03_findings.sql in about eleven seconds and is
+      byte-reproducible across runs because the shuffle is keyed on
+      HASH(seed, trial, stay_id) rather than RANDOM().
+
+      USE THIS TABLE when the question asks whether a difference is REAL,
+      SIGNIFICANT, PROVEN, or asks for a p-value. Use adopted_dog_cohort
+      instead when the question just asks how long dogs waited.
+
+      HOW TO READ p_value: it is the share of 5,000 random reshuffles that
+      produced a gap at least as large as the observed one. Small means chance
+      does not explain it. The smallest value the estimator can report is
+      0.0002 = (0+1)/(5000+1), which means chance never once reproduced the
+      gap. p_value near 1 is a null result and must be reported as one - the
+      null results in this table are findings, not failures.
+    synonyms:
+      - findings
+      - the receipts
+      - published statistics
+      - p values
+      - significance
+      - is it real
+      - the study
+      - proof
+    base_table:
+      database: SHELTER
+      schema: AAC
+      table: FINDINGS
+
+    dimensions:
+      - name: label
+        expr: LABEL
+        data_type: TEXT
+        description: >-
+          Which split this row tests. The seven are exactly: 'All-black coat',
+          'Bully-type breed label', 'Bully-type label (adults only)', 'Arrived
+          unnamed', 'Small-breed label', 'Arrived unnamed (adults only)',
+          'All-black coat (adults only)'. The two '(adults only)' coat and
+          label rows are a matched pair on the identical 775-dog population -
+          that pairing is the strongest form of the argument, because both
+          sides are held to the same dogs.
+        synonyms: [split, finding, test, which claim, hypothesis]
+        sample_values:
+          - All-black coat
+          - Bully-type breed label
+          - Bully-type label (adults only)
+          - Arrived unnamed
+          - Small-breed label
+          - All-black coat (adults only)
+
+      - name: split_id
+        expr: SPLIT_ID
+        data_type: NUMBER
+        description: Stable ordering key for the splits, 1 to 7.
+        synonyms: [split number, id]
+
+    facts:
+      - name: med_yes
+        expr: MED_YES
+        data_type: NUMBER
+        description: >-
+          Median days to adoption for the dogs that HAVE the attribute named in
+          label (the black dogs, the bully-labelled dogs, and so on).
+        synonyms: [median with, median for the group, days for the flagged group]
+
+      - name: med_no
+        expr: MED_NO
+        data_type: NUMBER
+        description: >-
+          Median days to adoption for every other dog in the same cohort - the
+          comparison group.
+        synonyms: [median without, comparison median, everyone else]
+
+      - name: delta_days
+        expr: DELTA_DAYS
+        data_type: NUMBER
+        description: >-
+          med_yes minus med_no, in days. POSITIVE means having the attribute
+          costs the dog time. NEGATIVE means dogs with the attribute leave
+          faster. Coat colour sits at +1.0 day overall and +3.0 among adults,
+          both statistically indistinguishable from zero. The bully label sits
+          at +17.0 overall and +36.5 among adults.
+        synonyms: [difference, gap, delta, extra days, how much longer]
+
+      - name: p_value
+        expr: P_VALUE
+        data_type: NUMBER
+        description: >-
+          Permutation p-value from 5,000 reshuffles, computed with the add-one
+          estimator so it can never report a literal zero. Floor is 0.0002.
+          Conventionally p below 0.05 is called significant. In this table
+          0.6871 (all-black coat) and 0.4203 (all-black coat, adults) are the
+          null results that carry the thesis.
+        synonyms: [p, significance, probability, confidence, is it chance]
+
+      - name: n_yes
+        expr: N_YES
+        data_type: NUMBER
+        description: Number of adopted dogs that have the attribute.
+        synonyms: [group size, how many with]
+
+      - name: n_no
+        expr: N_NO
+        data_type: NUMBER
+        description: Number of adopted dogs in the comparison group.
+        synonyms: [comparison size, how many without]
+
+      - name: cohort_n
+        expr: COHORT_N
+        data_type: NUMBER
+        description: >-
+          Total dogs the split was computed on. 2,821 for the whole-cohort
+          splits, 775 for the adults-only splits.
+        synonyms: [cohort size, total dogs, sample size]
+
+      - name: n_permutations
+        expr: N_PERMUTATIONS
+        data_type: NUMBER
+        description: >-
+          Reshuffles behind the p-value. 5,000 for every row. Included so the
+          reader can see the test was actually run rather than asserted.
+        synonyms: [permutations, shuffles, trials, reshuffles]
+
+    filters:
+      - name: significant_only
+        expr: P_VALUE < 0.05
+        description: Only splits where chance does not explain the gap.
+        synonyms: [significant findings, real effects, proven]
+
+      - name: null_results_only
+        expr: P_VALUE >= 0.05
+        description: >-
+          Only splits where no effect was detected. These are published, not
+          hidden - the coat-colour null result is the point of the study.
+        synonyms: [no effect, null results, failed to find]
+
+      - name: adults_only_splits
+        expr: LABEL ILIKE '%adults only%'
+        description: >-
+          The three splits computed on the 775 adopted adults, where age is
+          held still.
+        synonyms: [adult splits, age controlled]
+
+  # -------------------------------------------------------------------
+  # 4. Breed strings, keyword rule vs AI classifier.
+  # -------------------------------------------------------------------
+  - name: breed_labels
+    description: >-
+      THE BREED VOCABULARY. All 167 distinct breed strings Austin Animal Center
+      wrote on canine intake paperwork, each classified into a nine-group
+      taxonomy by Snowflake Cortex AI_CLASSIFY, alongside the simple keyword
+      rule the site ships.
+
+      USE THIS TABLE for questions about breeds as CATEGORIES: which breeds
+      count as bully-type, how many breed strings exist, where the AI and the
+      keyword rule disagree, what group a breed falls into.
+
+      THE INTERESTING RESULT: the keyword rule (pit bull / Staffordshire /
+      American Bully) is a strict SUBSET of the AI classification. There is not
+      one case where the keyword rule over-reached. It missed nine breed
+      strings - American Bulldog, Mastiff, Bullmastiff, Bull Terrier, Cane
+      Corso, Dogo Argentino, Boerboel, Neapolitan Mastiff, Spanish Mastiff -
+      all molossers and bull-and-terriers with no 'pit' or 'Staffordshire'
+      substring to match on. Those nine strings cover 179 dog stays, and among
+      adopted adults the 30 dogs the keyword rule missed waited a median of
+      56.5 days, essentially identical to the 57.0 of the ones it caught,
+      against 24 for everyone else. The classifier did not invent a category;
+      it found more members of one that was already there.
+    synonyms:
+      - breeds
+      - breed list
+      - breed classification
+      - which breeds are bully
+      - ai classification
+      - breed taxonomy
+    base_table:
+      database: SHELTER
+      schema: AAC
+      table: BREED_LABELS
+    primary_key:
+      columns:
+        - BREED
+
+    dimensions:
+      - name: breed
+        expr: BREED
+        data_type: TEXT
+        description: The distinct breed string as written on intake paperwork.
+        synonyms: [breed name, breed string, breed]
+        unique: true
+        sample_values:
+          - American Pit Bull Terrier
+          - American Staffordshire Terrier
+          - Labrador Retriever
+          - Cane Corso
+          - Bullmastiff
+
+      - name: breed_group
+        expr: BREED_GROUP
+        data_type: TEXT
+        description: >-
+          Nine-group taxonomy assigned by Cortex AI_CLASSIFY: bully-type,
+          herding, hound, sporting, terrier, toy-companion, working,
+          non-sporting, mixed-unknown. The classification is deterministic in
+          practice - three independent full rebuilds produced identical labels
+          on all 167 strings.
+        synonyms: [group, category, breed category, family, kind of dog]
+        sample_values: ["bully-type", "herding", "sporting", "terrier", "toy-companion", "working", "hound", "non-sporting", "mixed-unknown"]
+
+      - name: ai_bully_label
+        expr: AI_BULLY_LABEL
+        data_type: BOOLEAN
+        description: >-
+          TRUE when Cortex AI_CLASSIFY placed this breed string in the
+          bully-type group. 12 of the 167 strings, covering 1,533 intakes.
+          Note the classifier put Boxer in 'working' rather than bully-type;
+          that call is defensible either way and was left as the model made it
+          rather than overridden by hand.
+        synonyms: [ai bully, classified bully, model says bully]
+
+      - name: regex_bully_label
+        expr: REGEX_BULLY_LABEL
+        data_type: BOOLEAN
+        description: >-
+          TRUE when the shipped keyword rule matches - pit bull, Staffordshire
+          or American Bully appears in the string. Only 3 of the 167 strings.
+          A strict subset of ai_bully_label.
+        synonyms: [keyword rule, regex, substring rule, simple rule]
+
+      - name: labels_disagree
+        expr: (AI_BULLY_LABEL <> REGEX_BULLY_LABEL)
+        data_type: BOOLEAN
+        description: >-
+          TRUE for the 9 breed strings where the AI and the keyword rule
+          disagree. Every one of them is AI-only; there are zero regex-only
+          cases.
+        synonyms: [disagreement, mismatch, where they differ, missed by keywords]
+
+      - name: classifier
+        expr: CLASSIFIER
+        data_type: TEXT
+        description: Which Cortex function produced breed_group, recorded for provenance.
+        synonyms: [model, which model, classifier]
+
+    facts:
+      - name: n_intakes
+        expr: N_INTAKES
+        data_type: NUMBER
+        description: >-
+          How many canine intake records carry this exact breed string. Use
+          this to weight breeds by how common they actually are - the top few
+          strings dominate the shelter.
+        synonyms: [intakes, how many dogs, frequency, count of dogs, popularity]
+
+    metrics:
+      - name: distinct_breed_strings
+        expr: COUNT(BREED)
+        description: Number of distinct breed strings. 167 in total.
+        synonyms: [how many breeds, number of breeds]
+
+      - name: total_intakes_for_breeds
+        expr: SUM(N_INTAKES)
+        description: Total canine intake records covered by the selected breed strings.
+        synonyms: [total dogs, total intakes]
+
+    filters:
+      - name: bully_type_breeds
+        expr: AI_BULLY_LABEL
+        description: The 12 breed strings the AI classified as bully-type.
+        synonyms: [bully breeds, pit bull breeds]
+
+      - name: disagreements_only
+        expr: AI_BULLY_LABEL <> REGEX_BULLY_LABEL
+        description: >-
+          The 9 breed strings the keyword rule missed and the classifier
+          caught.
+        synonyms: [disagreements, missed breeds, mismatches]
+
+  # -------------------------------------------------------------------
+  # 5. Do adoptions stick? Returns findings.
+  # -------------------------------------------------------------------
+  - name: return_findings
+    description: >-
+      THE RECEIPTS FOR WHETHER ADOPTIONS STICK. 31 rows about dogs coming back
+      to the shelter after they left: 13 permutation-tested contrasts and 18
+      descriptive rows.
+
+      USE THIS TABLE when the question is about dogs COMING BACK, returns,
+      adoptions failing, second chances, or whether an adoption lasted. Use
+      published_findings instead for questions about how long dogs wait.
+
+      THE HEADLINE, and it is the strongest thing in the publication: the
+      bully-type label does NOT predict whether a dog comes back. 7.97 percent
+      against 9.48 percent, p = 0.49, dead null, and still null when age is
+      held fixed. The label costs a dog dozens of extra days in a kennel and
+      then predicts nothing at all about whether the home works out.
+
+      TWO RULES A READER MUST NOT BREAK.
+      (a) ALWAYS RESPECT THE `tested` COLUMN. Rows with tested = FALSE are
+      descriptive counts with no p-value and must never be described as
+      findings, differences or effects.
+      (b) Censoring: a dog adopted last week has not had time to come back, so
+      the tested rows use a fixed 180-day window and only admit exits that had
+      a full 180 days of follow-up.
+
+      Four of the 13 tested rows are explicit null results and one (black coat)
+      is an explicit failure to survive multiple-comparison correction. All are
+      published as they came out.
+    synonyms:
+      - returns
+      - coming back
+      - do adoptions stick
+      - returned dogs
+      - second visits
+      - failed adoptions
+      - return rate
+    base_table:
+      database: SHELTER
+      schema: AAC
+      table: RETURNS_FINDINGS
+
+    dimensions:
+      - name: finding_key
+        expr: FINDING_KEY
+        data_type: TEXT
+        description: Stable machine key for the row, e.g. 'bully_label', 'came_in_surrendered'.
+        synonyms: [key, id]
+
+      - name: family
+        expr: FAMILY
+        data_type: TEXT
+        description: >-
+          'primary' is one of the six pre-declared hypotheses that carry the
+          Holm correction. 'robustness' repeats a primary contrast with the
+          shuffle confined within age band, to check the effect is not just age
+          composition. 'omnibus' tests a whole-panel question. 'descriptive' is
+          a plain count with no test attached.
+        synonyms: [test family, kind of test, category]
+        sample_values: ["primary", "robustness", "omnibus", "descriptive"]
+
+      - name: label
+        expr: LABEL
+        data_type: TEXT
+        description: Plain-English statement of what this row is about.
+        synonyms: [finding, what it says, claim]
+        sample_values:
+          - Bully-type breed label
+          - Came in as an owner surrender
+          - Primary colour recorded as Black
+          - Arrived with no name
+          - Adult at intake (2-7 years)
+
+      - name: cohort
+        expr: COHORT
+        data_type: TEXT
+        description: >-
+          Which population the row was computed on, in words - most tested rows
+          read 'adopted exits with 180d follow-up'.
+        synonyms: [population, which dogs, sample]
+
+      - name: metric
+        expr: METRIC
+        data_type: TEXT
+        description: >-
+          What val_yes and val_no actually measure for this row. READ IT before
+          interpreting the numbers - it differs between rows. Most tested rows
+          are 'return rate within 180 days (percentage points)', but the
+          omnibus and descriptive rows repurpose the same columns for other
+          quantities.
+        synonyms: [measure, units, what is measured]
+
+      - name: group_yes
+        expr: GROUP_YES
+        data_type: TEXT
+        description: Plain-English name of the group val_yes describes.
+        synonyms: [first group, the group]
+
+      - name: group_no
+        expr: GROUP_NO
+        data_type: TEXT
+        description: Plain-English name of the comparison group val_no describes.
+        synonyms: [comparison group, everyone else]
+
+      - name: tested
+        expr: TESTED
+        data_type: BOOLEAN
+        description: >-
+          TRUE when this row carries a real permutation test and a p-value.
+          FALSE for the 18 descriptive rows. NEVER describe a tested = FALSE
+          row as a finding, a difference or an effect - it has no test behind
+          it. When a question asks what the returns analysis found, filter to
+          tested = TRUE.
+        synonyms: [is it tested, has a p value, is it a finding]
+
+      - name: verdict
+        expr: VERDICT
+        data_type: TEXT
+        description: >-
+          The publication's own plain-English ruling on the row, written before
+          the numbers came back. Values include 'significant after Holm
+          correction across the six primary tests', 'no detectable effect',
+          'nominally significant, does NOT survive Holm correction across six
+          tests', and 'descriptive only, not tested'. Quote this rather than
+          inventing an interpretation from the p-value.
+        synonyms: [conclusion, ruling, interpretation, what it means]
+
+    facts:
+      - name: val_yes
+        expr: VAL_YES
+        data_type: NUMBER
+        description: >-
+          The measured value for group_yes, in whatever units the metric column
+          names. For a standard tested row this is the 180-day return rate in
+          percentage points.
+        synonyms: [value for the group, rate for the group]
+
+      - name: val_no
+        expr: VAL_NO
+        data_type: NUMBER
+        description: The same measurement for the comparison group.
+        synonyms: [comparison value, rate for everyone else]
+
+      - name: delta
+        expr: DELTA
+        data_type: NUMBER
+        description: >-
+          val_yes minus val_no. For return-rate rows this is in PERCENTAGE
+          POINTS, not days and not a ratio. Positive means the group comes back
+          more often.
+        synonyms: [difference, gap, percentage point difference]
+
+      - name: p_value
+        expr: P_VALUE
+        data_type: NUMBER
+        description: >-
+          Raw permutation p-value from 5,000 reshuffles seeded on
+          HASH(stay_id, replicate), so it reproduces exactly rather than
+          re-rolling on every deploy. Floor 0.0002. NULL on descriptive rows.
+        synonyms: [p, raw p, significance]
+
+      - name: p_holm
+        expr: P_HOLM
+        data_type: NUMBER
+        description: >-
+          Holm-Bonferroni corrected p-value across the family of six primary
+          tests. NULL for robustness, omnibus and descriptive rows, which are
+          not part of that family. THIS is the number that decides whether a
+          primary result is published as real. Black coat is the cautionary
+          case: raw p = 0.033 looks significant, p_holm = 0.099 does not
+          survive - and the direction was backwards from the folk claim anyway.
+        synonyms: [corrected p, holm, adjusted p, multiple comparison correction]
+
+      - name: n_yes
+        expr: N_YES
+        data_type: NUMBER
+        description: Number of exits in group_yes.
+        synonyms: [group size]
+
+      - name: n_no
+        expr: N_NO
+        data_type: NUMBER
+        description: Number of exits in the comparison group.
+        synonyms: [comparison size]
+
+    filters:
+      - name: tested_only
+        expr: TESTED
+        description: >-
+          Only the 13 rows that carry a real permutation test. Apply this
+          whenever the question asks what the returns analysis found.
+        synonyms: [real findings, tested findings, with p values]
+
+      - name: primary_only
+        expr: FAMILY = 'primary'
+        description: >-
+          Only the six pre-declared primary hypotheses, the family the Holm
+          correction is applied across.
+        synonyms: [primary tests, main findings, headline tests]
+
+      - name: survives_correction
+        expr: P_HOLM < 0.05
+        description: Primary findings that survive Holm-Bonferroni correction.
+        synonyms: [proven, holds up, survives correction]
+
+  # -------------------------------------------------------------------
+  # 6. One-row scorecard: keyword rule vs AI classifier.
+  # -------------------------------------------------------------------
+  - name: label_comparison
+    description: >-
+      A SINGLE-ROW SCORECARD comparing the shipped keyword bully rule against
+      the Cortex AI_CLASSIFY bully label, measured on the 949 adopted adult
+      dogs. It exists so the site can state, in one query, what swapping the
+      rule for the model actually changes.
+
+      USE THIS TABLE only for the head-to-head keyword-versus-AI question. It
+      has exactly one row, so never aggregate it - just select the columns.
+
+      WHAT IT SHOWS: the keyword rule finds 189 bully-labelled adopted adults
+      with a median 57-day wait; the AI finds 219 with the same median 57. The
+      gap against other dogs moves only from 32 to 33 days. The result that
+      matters is disputed_median_days: the 30 dogs the keyword rule missed
+      waited a median of 56.5 days - right on top of the ones it caught, and
+      more than double the 24 days of everyone else. The penalty is not an
+      artifact of which three substrings somebody happened to type.
+    synonyms:
+      - keyword vs ai
+      - rule comparison
+      - regex vs classifier
+      - does the ai change the answer
+    base_table:
+      database: SHELTER
+      schema: AAC
+      table: LABEL_COMPARISON
+
+    facts:
+      - name: cohort_stays
+        expr: COHORT_STAYS
+        data_type: NUMBER
+        description: Adopted adult dog stays the comparison is measured on (age 2 or over).
+        synonyms: [cohort size, how many dogs]
+
+      - name: regex_bully_n
+        expr: REGEX_BULLY_N
+        data_type: NUMBER
+        description: Dogs the shipped keyword rule flags as bully-type.
+        synonyms: [keyword count, regex count]
+
+      - name: regex_bully_median_days
+        expr: REGEX_BULLY_MEDIAN_DAYS
+        data_type: NUMBER
+        description: Median days to adoption for the keyword rule's bully-labelled dogs.
+        synonyms: [keyword median]
+
+      - name: regex_other_median_days
+        expr: REGEX_OTHER_MEDIAN_DAYS
+        data_type: NUMBER
+        description: Median days to adoption for everyone the keyword rule did not flag.
+        synonyms: [keyword comparison median]
+
+      - name: regex_delta_days
+        expr: REGEX_DELTA_DAYS
+        data_type: NUMBER
+        description: The bully-label wait gap in days under the keyword rule.
+        synonyms: [keyword gap, regex delta]
+
+      - name: ai_bully_n
+        expr: AI_BULLY_N
+        data_type: NUMBER
+        description: Dogs Cortex AI_CLASSIFY flags as bully-type.
+        synonyms: [ai count, classifier count]
+
+      - name: ai_bully_median_days
+        expr: AI_BULLY_MEDIAN_DAYS
+        data_type: NUMBER
+        description: Median days to adoption for the AI's bully-labelled dogs.
+        synonyms: [ai median]
+
+      - name: ai_other_median_days
+        expr: AI_OTHER_MEDIAN_DAYS
+        data_type: NUMBER
+        description: Median days to adoption for everyone the AI did not flag.
+        synonyms: [ai comparison median]
+
+      - name: ai_delta_days
+        expr: AI_DELTA_DAYS
+        data_type: NUMBER
+        description: The bully-label wait gap in days under the AI classification.
+        synonyms: [ai gap, ai delta]
+
+      - name: disagree_stays_in_cohort
+        expr: DISAGREE_STAYS_IN_COHORT
+        data_type: NUMBER
+        description: >-
+          Dogs in the cohort the two rules disagree about. All of them are
+          AI-only; the keyword rule never over-reached.
+        synonyms: [disagreements, disputed dogs]
+
+      - name: disputed_median_days
+        expr: DISPUTED_MEDIAN_DAYS
+        data_type: NUMBER
+        description: >-
+          THE PAYOFF COLUMN. Median days to adoption for exactly the dogs the
+          keyword rule missed and the classifier caught. It lands on top of the
+          median for the dogs the keyword rule did catch, which is what shows
+          the classifier found real members of an existing category rather than
+          inventing one.
+        synonyms: [disputed median, missed dogs median, the dogs keywords missed]
+
+      - name: disagree_breed_strings
+        expr: DISAGREE_BREED_STRINGS
+        data_type: NUMBER
+        description: Distinct breed strings the two rules disagree about, out of 167.
+        synonyms: [breeds in dispute, mismatched breeds]
+
+      - name: disagree_stays_all_dogs
+        expr: DISAGREE_STAYS_ALL_DOGS
+        data_type: NUMBER
+        description: Dog stays the two rules disagree about across all 6,084 canine stays.
+        synonyms: [total disagreements]
+
+relationships:
+  - name: census_dog_to_breed_label
+    left_table: open_dog_census
+    right_table: breed_labels
+    relationship_columns:
+      - left_column: breed
+        right_column: breed
+    join_type: left_outer
+    relationship_type: many_to_one
+
+  - name: adopted_dog_to_breed_label
+    left_table: adopted_dog_cohort
+    right_table: breed_labels
+    relationship_columns:
+      - left_column: breed
+        right_column: breed
+    join_type: left_outer
+    relationship_type: many_to_one
+
+verified_queries:
+
+  - name: black_dogs_wait_longer
+    question: do black dogs wait longer?
+    use_as_onboarding_question: true
+    verified_at: 1786838400
+    verified_by: Beige Dog Bureau
+    sql: |-
+      SELECT
+        CASE WHEN black_coat THEN 'All-black coat' ELSE 'Every other coat' END AS coat,
+        COUNT(*) AS adopted_dogs,
+        MEDIAN(days_in_care) AS median_days_to_adoption
+      FROM __adopted_dog_cohort
+      GROUP BY 1
+      ORDER BY 1
+
+  - name: black_dogs_wait_longer_adults_only
+    question: do black dogs wait longer once you only look at adult dogs?
+    verified_at: 1786838400
+    verified_by: Beige Dog Bureau
+    sql: |-
+      SELECT
+        CASE WHEN black_coat THEN 'All-black coat' ELSE 'Every other coat' END AS coat,
+        COUNT(*) AS adopted_adults,
+        MEDIAN(days_in_care) AS median_days_to_adoption
+      FROM __adopted_dog_cohort
+      WHERE adult
+      GROUP BY 1
+      ORDER BY 1
+
+  - name: coat_colour_significance
+    question: is the black coat difference statistically significant?
+    verified_at: 1786838400
+    verified_by: Beige Dog Bureau
+    sql: |-
+      SELECT label, n_yes, med_yes, n_no, med_no, delta_days, p_value, n_permutations
+      FROM __published_findings
+      WHERE label ILIKE '%black%'
+      ORDER BY split_id
+
+  - name: longest_waiting_dogs
+    question: which dogs have waited the longest?
+    use_as_onboarding_question: true
+    verified_at: 1786838400
+    verified_by: Beige Dog Bureau
+    sql: |-
+      SELECT
+        stay_id,
+        CASE WHEN name = '' THEN 'Unnamed - ' || animal_id ELSE name END AS dog,
+        days_in_care,
+        intake_date,
+        breed,
+        color,
+        age_band,
+        bully_label,
+        overlooked_index
+      FROM __open_dog_census
+      ORDER BY days_in_care DESC
+      LIMIT 10
+
+  - name: bully_label_matters_more_for_adults
+    question: does the pit bull label matter more for adults?
+    use_as_onboarding_question: true
+    verified_at: 1786838400
+    verified_by: Beige Dog Bureau
+    sql: |-
+      SELECT
+        label,
+        cohort_n,
+        n_yes,
+        med_yes,
+        n_no,
+        med_no,
+        delta_days,
+        p_value
+      FROM __published_findings
+      WHERE label ILIKE '%bully%'
+      ORDER BY split_id
+
+  - name: bully_label_by_age_band_from_cohort
+    question: compare the wait for bully-labelled dogs against other dogs, for adults and for all ages
+    verified_at: 1786838400
+    verified_by: Beige Dog Bureau
+    sql: |-
+      SELECT
+        CASE WHEN adult THEN 'Adults (2-7)' ELSE 'Every other age' END AS age_group,
+        CASE WHEN bully_label THEN 'Bully-type label' ELSE 'Every other label' END AS breed_label,
+        COUNT(*) AS adopted_dogs,
+        MEDIAN(days_in_care) AS median_days_to_adoption
+      FROM __adopted_dog_cohort
+      GROUP BY 1, 2
+      ORDER BY 1, 2
+
+  - name: how_many_dogs_still_in_care
+    question: how many dogs are still in care?
+    use_as_onboarding_question: true
+    verified_at: 1786838400
+    verified_by: Beige Dog Bureau
+    sql: |-
+      SELECT
+        COUNT(*) AS dogs_still_in_care,
+        COUNT(DISTINCT animal_id) AS distinct_animals,
+        MEDIAN(days_in_care) AS median_days_waited_so_far,
+        MAX(days_in_care) AS longest_wait_days
+      FROM __open_dog_census
+
+  - name: dogs_in_care_by_age_band
+    question: how many dogs are still in care by age band?
+    verified_at: 1786838400
+    verified_by: Beige Dog Bureau
+    sql: |-
+      SELECT age_band, COUNT(*) AS dogs_still_in_care, MEDIAN(days_in_care) AS median_days_waited
+      FROM __open_dog_census
+      GROUP BY 1
+      ORDER BY 2 DESC
+
+  - name: all_published_findings
+    question: what did the study find?
+    verified_at: 1786838400
+    verified_by: Beige Dog Bureau
+    sql: |-
+      SELECT label, cohort_n, n_yes, med_yes, n_no, med_no, delta_days, p_value
+      FROM __published_findings
+      ORDER BY split_id
+
+  - name: do_bully_dogs_come_back_more
+    question: are pit bulls more likely to be returned after adoption?
+    use_as_onboarding_question: true
+    verified_at: 1786838400
+    verified_by: Beige Dog Bureau
+    sql: |-
+      SELECT label, cohort, metric, group_yes, n_yes, val_yes, group_no, n_no, val_no,
+             delta, p_value, p_holm, verdict
+      FROM __return_findings
+      WHERE tested AND finding_key IN ('bully_label', 'bully_label_by_age')
+
+  - name: which_breeds_count_as_bully
+    question: which breeds count as bully-type?
+    verified_at: 1786838400
+    verified_by: Beige Dog Bureau
+    sql: |-
+      SELECT breed, n_intakes, ai_bully_label, regex_bully_label,
+             ai_bully_label <> regex_bully_label AS keyword_rule_missed_it
+      FROM __breed_labels
+      WHERE ai_bully_label
+      ORDER BY n_intakes DESC
+
+  - name: primary_returns_findings
+    question: what predicts whether an adoption sticks?
+    verified_at: 1786838400
+    verified_by: Beige Dog Bureau
+    sql: |-
+      SELECT label, group_yes, n_yes, val_yes, group_no, n_no, val_no, delta,
+             p_value, p_holm, verdict
+      FROM __return_findings
+      WHERE tested AND family = 'primary'
+      ORDER BY p_holm
+
+  - name: most_overlooked_dogs
+    question: which dogs are the most overlooked right now?
+    verified_at: 1786838400
+    verified_by: Beige Dog Bureau
+    sql: |-
+      SELECT
+        stay_id,
+        CASE WHEN name = '' THEN 'Unnamed - ' || animal_id ELSE name END AS dog,
+        overlooked_index,
+        days_in_care,
+        unnamed,
+        bully_label,
+        age_band,
+        breed,
+        color
+      FROM __open_dog_census
+      ORDER BY overlooked_index DESC
+      LIMIT 10
+
+custom_instructions: |-
+  You are answering questions for the Beige Dog Bureau, a public civic gazette
+  built on Austin Animal Center's own open data. You are not a shelter, an
+  adoption service or a matching engine. Never suggest adopting a dog, never
+  recommend a particular dog to a person, never speculate about a dog's
+  temperament, health or suitability for a home, and never invent a name for a
+  dog that arrived without one.
+
+  RULES FOR WRITING SQL AGAINST THIS MODEL.
+
+  1. Wait-time questions ("how long", "waits longer", "faster", "days to
+     adoption") go to adopted_dog_cohort or published_findings, never to
+     open_dog_census. Every dog in the census is still waiting, so its wait is
+     unfinished and comparing it against completed adoptions is invalid.
+
+  2. Questions about who is in the shelter now, who has waited longest, or who
+     is most overlooked go to open_dog_census.
+
+  3. Questions containing "significant", "p value", "proven", "real", "is it
+     chance" go to published_findings for wait time, or to return_findings for
+     coming back.
+
+  4. Always summarise days_in_care with MEDIAN, not AVG. The distribution is
+     heavily right-skewed and the mean misdescribes the typical dog. If a user
+     explicitly asks for an average, give it but return the median beside it.
+
+  5. Count rows as STAYS, not animals. animal_id is reused across visits; 343
+     dogs in this dataset have more than one stay. Only use COUNT(DISTINCT
+     animal_id) when the question is explicitly about individual animals.
+
+  6. In return_findings, never report a row where tested = FALSE as a finding,
+     a difference or an effect. Those rows are descriptive counts with no test
+     behind them. When asked what the returns analysis found, filter to
+     tested = TRUE, and prefer p_holm over p_value for the six primary rows.
+
+  RULES FOR WRITING THE ANSWER.
+
+  7. Report null results as results. If a difference is not significant, say
+     so plainly - "no difference that this data can distinguish from chance" -
+     rather than hedging it into sounding like a weak effect. The coat-colour
+     null result is the central finding of this publication, not a
+     disappointment.
+
+  8. Keep coat colour and the breed label straight, because they are the whole
+     argument. Coat colour does not predict how long a dog waits: +1.0 day
+     overall at p = 0.6871, and +3.0 days among adults at p = 0.4203. The
+     bully-type breed LABEL does: +17.0 days overall and +36.5 days among
+     adults, both at the 0.0002 floor of a 5,000-shuffle test. The label is a
+     description of paperwork, not of a dog.
+
+  9. Never present the overlooked index as a measure of a dog's worth,
+     desirability or adoptability. It is a transparent arithmetic sort order
+     for a bulletin: days waited, plus 20 if unnamed, plus 20 if bully-labelled,
+     plus 10 if adult. Coat colour contributes nothing to it, deliberately.
+
+  10. Quote numbers exactly as the query returned them. Never round a p-value
+      to zero and never state a statistic that the returned rows do not
+      contain. If the data cannot answer the question, say which column would
+      be needed and stop.

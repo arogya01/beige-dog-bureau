@@ -1,0 +1,565 @@
+.wall {
+  --wall: #d9ebe6;
+  --form: #fbfaf6;
+  --ink: #1c2430;
+  --muted: #3d4a52;
+  --rule: #9aa7a3;
+  --alert: #b42318;
+  --steel: #6a7370;
+  --steel-2: #4b5451;
+  --steel-hi: #c5cecb;
+  --sans: var(--font-clinic-text), "Red Hat Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --mono: var(--font-clinic-mono), "Red Hat Mono", ui-monospace, monospace;
+  min-height: 100dvh;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.28), transparent 11rem),
+    repeating-linear-gradient(
+      90deg,
+      transparent 0 47px,
+      rgba(28, 36, 48, 0.045) 47px 48px
+    ),
+    repeating-linear-gradient(
+      0deg,
+      transparent 0 47px,
+      rgba(28, 36, 48, 0.045) 47px 48px
+    ),
+    var(--wall);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 1.05rem;
+  line-height: 1.45;
+}
+
+.wall :focus-visible {
+  outline: 3px solid var(--alert);
+  outline-offset: 3px;
+}
+
+.wall a {
+  color: var(--ink);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.16em;
+}
+
+.wall a:hover {
+  color: var(--alert);
+}
+
+.rail {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.65rem 1.25rem;
+  align-items: baseline;
+  padding: 0.7rem 1.1rem;
+  background: linear-gradient(180deg, #8f9895 0%, #6e7774 48%, #5c6562 100%);
+  color: #f4f7f6;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.28) inset,
+    0 -1px 0 rgba(28, 36, 48, 0.35);
+}
+
+.facility,
+.looks,
+.printMeta,
+.formHead,
+.stamp,
+.statusLine,
+.fields dt,
+.labHead,
+.labTable,
+.labDelta,
+.slipDays span,
+.slipMeta,
+.flag,
+.flagHot,
+.sectionNote,
+.notice {
+  font-family: var(--mono);
+}
+
+.facility {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.looks {
+  font-size: 0.78rem;
+  color: #f4f7f6;
+  text-underline-offset: 0.2em;
+}
+
+.looks:hover {
+  color: #fff4f2;
+}
+
+.sheet {
+  width: min(44rem, calc(100% - 1.6rem));
+  margin-inline: auto;
+  padding: 1.25rem 0 2.4rem;
+}
+
+.sheet:focus {
+  outline: none;
+}
+
+.notice {
+  margin: 0 0 1rem;
+  padding: 0.55rem 0.7rem;
+  border: 2px solid var(--alert);
+  background: color-mix(in srgb, var(--alert) 8%, var(--form));
+  color: var(--alert);
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+}
+
+.intro {
+  margin-bottom: 1.15rem;
+}
+
+.title {
+  margin: 0 0 0.35rem;
+  font-size: clamp(1.7rem, 4vw, 2.15rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+}
+
+.lede {
+  margin: 0;
+  max-width: 36rem;
+  color: var(--muted);
+}
+
+.clipboard {
+  position: relative;
+  margin: 0 0 1.6rem;
+  padding: 2.85rem 0.65rem 0.65rem;
+  background:
+    linear-gradient(90deg, rgba(28, 36, 48, 0.18), transparent 8%, transparent 92%, rgba(28, 36, 48, 0.18)),
+    linear-gradient(180deg, #8a9390 0%, #6c7572 14%, #5a6360 100%);
+  border-radius: 3px 3px 2px 2px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.32) inset,
+    0 -3px 0 rgba(28, 36, 48, 0.22) inset,
+    0 22px 36px rgba(28, 36, 48, 0.2);
+}
+
+.clip {
+  position: absolute;
+  top: 0.28rem;
+  left: 50%;
+  width: 7.4rem;
+  height: 2.45rem;
+  transform: translateX(-50%);
+}
+
+.clipCap {
+  display: block;
+  height: 0.95rem;
+  border-radius: 2px 2px 1px 1px;
+  background: linear-gradient(180deg, #e4eae7, #9aa3a0 70%, #7d8683);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.7) inset,
+    0 2px 3px rgba(28, 36, 48, 0.35);
+}
+
+.clipArm {
+  display: block;
+  width: 0.42rem;
+  height: 1.15rem;
+  margin: -0.12rem auto 0;
+  background: linear-gradient(90deg, #7a8380, #cfd6d3 45%, #5f6865);
+  box-shadow: 0 1px 2px rgba(28, 36, 48, 0.3);
+}
+
+.clipPad {
+  display: block;
+  width: 2.1rem;
+  height: 0.42rem;
+  margin: 0.05rem auto 0;
+  border-radius: 1px;
+  background: #3d4543;
+}
+
+.form {
+  position: relative;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 15px,
+      rgba(28, 36, 48, 0.035) 15px,
+      rgba(28, 36, 48, 0.035) 16px
+    ),
+    var(--form);
+  color: var(--ink);
+  border: 1px solid #d8ddd6;
+  padding: 0.85rem 0.9rem 0.95rem;
+  box-shadow: 0 0 0 1px rgba(28, 36, 48, 0.08);
+}
+
+.formHead {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.25rem 0.8rem;
+  margin: 0 7.5rem 0.7rem 0;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid var(--rule);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.stamp {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.65rem;
+  margin: 0;
+  max-width: 8.6rem;
+  padding: 0.32rem 0.4rem;
+  border: 3px solid var(--alert);
+  color: var(--alert);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-align: center;
+  text-transform: uppercase;
+  transform: rotate(7deg);
+  background: color-mix(in srgb, var(--form) 82%, #fff);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--alert) 35%, transparent);
+}
+
+.patient {
+  margin: 0 7.6rem 0.2rem 0;
+  font-size: clamp(1.55rem, 4vw, 2rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+}
+
+.statusLine {
+  margin: 0 0 0.85rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem 0.8rem;
+  margin: 0;
+}
+
+.fields > * {
+  min-width: 0;
+  margin: 0;
+  padding: 0.35rem 0.45rem 0.4rem;
+  border: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--form) 70%, #fff);
+}
+
+.fields dt {
+  margin: 0 0 0.12rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.fields dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 0.95rem;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.formFoot {
+  margin: 0.8rem 0 0;
+  font-size: 0.95rem;
+}
+
+.labs,
+.tray {
+  margin-top: 1.5rem;
+}
+
+.sectionTitle {
+  margin: 0 0 0.25rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.sectionNote {
+  margin: 0 0 0.75rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.labRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+}
+
+.lab {
+  position: relative;
+  background: var(--form);
+  border: 1px solid var(--rule);
+  padding: 0.55rem 0.65rem 0.65rem;
+  box-shadow: 0 1px 0 #fff inset;
+}
+
+.lab::before,
+.lab::after {
+  content: "";
+  position: absolute;
+  top: 0.45rem;
+  bottom: 0.45rem;
+  width: 0.28rem;
+  background:
+    repeating-linear-gradient(
+      180deg,
+      transparent 0 0.28rem,
+      var(--wall) 0.28rem 0.5rem
+    );
+}
+
+.lab::before {
+  left: 0.18rem;
+}
+
+.lab::after {
+  right: 0.18rem;
+}
+
+.labHot {
+  border-color: var(--alert);
+}
+
+.labHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: baseline;
+  margin: 0 0.55rem 0.45rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.labFlag,
+.labFlagHot {
+  padding: 0.08rem 0.28rem;
+  border: 1px solid var(--rule);
+  font-weight: 700;
+}
+
+.labFlagHot {
+  border-color: var(--alert);
+  color: var(--alert);
+}
+
+.labTable {
+  width: calc(100% - 1.1rem);
+  margin: 0 0.55rem;
+  border-collapse: collapse;
+  font-size: 0.74rem;
+}
+
+.labTable th,
+.labTable td {
+  padding: 0.22rem 0.15rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
+  text-align: left;
+  font-weight: 500;
+}
+
+.labTable thead th {
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.labTable td,
+.labTable tbody th {
+  font-variant-numeric: tabular-nums;
+}
+
+.labTable tbody th {
+  font-weight: 500;
+}
+
+.labDelta,
+.labVerdict {
+  margin: 0.4rem 0.55rem 0;
+}
+
+.labDelta {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.labVerdict {
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.stack {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.slip {
+  display: grid;
+  grid-template-columns: 4.6rem 1fr auto;
+  gap: 0.7rem;
+  align-items: start;
+  padding: 0.5rem 0.6rem 0.55rem;
+  background: var(--form);
+  border: 1px solid var(--rule);
+  text-decoration: none;
+  color: inherit;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+}
+
+.slip:hover {
+  border-color: var(--ink);
+  color: inherit;
+}
+
+.slipDays {
+  display: flex;
+  flex-direction: column;
+  gap: 0.08rem;
+}
+
+.slipDays strong {
+  font-family: var(--mono);
+  font-size: 1.2rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.slipDays span {
+  font-size: 0.58rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.slipName {
+  display: block;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.slipMeta {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.slipFlags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.25rem;
+}
+
+.flag,
+.flagHot {
+  font-size: 0.62rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.12rem 0.28rem;
+  border: 1px solid var(--rule);
+}
+
+.flagHot {
+  border-color: var(--alert);
+  color: var(--alert);
+}
+
+.empty {
+  margin: 0;
+  padding: 0.8rem;
+  background: var(--form);
+  border: 1px dashed var(--rule);
+}
+
+.colophon {
+  width: min(44rem, calc(100% - 1.6rem));
+  margin: 0 auto;
+  padding: 1rem 0 2.2rem;
+  border-top: 1px solid var(--rule);
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.colophon p {
+  margin: 0 0 0.45rem;
+}
+
+.printMeta {
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+}
+
+.srOnly:not(:focus):not(:active) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 720px) {
+  .labRow,
+  .fields,
+  .slip {
+    grid-template-columns: 1fr;
+  }
+
+  .formHead,
+  .patient {
+    margin-right: 0;
+  }
+
+  .stamp {
+    position: static;
+    transform: none;
+    margin: 0 0 0.7rem;
+    max-width: 12rem;
+  }
+
+  .slipFlags {
+    justify-content: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stamp {
+    transform: none;
+  }
+}
