@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getCensus } from "@/lib/census";
+import { SplitFlaps } from "@/app/components/SplitFlaps";
 import type { DogStay, FindingSplit } from "@/lib/types";
 import styles from "@/app/explore/clock/page.module.css";
 
@@ -45,27 +46,6 @@ function dogNotes(dog: DogStay): string {
   if (dog.unnamed) notes.push("NO NAME");
   else if (dog.age_band && dog.age_band !== "unknown") notes.push(dog.age_band.toUpperCase());
   return notes.join(" · ") || "—";
-}
-
-function flapDigits(days: number): string[] {
-  const whole = Math.max(0, Math.round(days));
-  const min = whole >= 1000 ? 4 : 3;
-  return String(whole).padStart(min, "0").split("");
-}
-
-function SplitFlaps({ days }: { days: number }) {
-  const digits = flapDigits(days);
-  return (
-    <div className={styles.flaps} data-count={digits.length} aria-hidden="true">
-      {digits.map((digit, i) => (
-        <span className={styles.flap} key={`${digit}-${i}`}>
-          <span className={styles.flapTop} />
-          <span className={styles.flapSplit} />
-          <span className={styles.flapChar}>{digit}</span>
-        </span>
-      ))}
-    </div>
-  );
 }
 
 function FindingRow({

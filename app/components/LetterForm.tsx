@@ -3,7 +3,19 @@
 import { useState } from "react";
 import type { DogStay } from "@/lib/types";
 
-export function LetterForm({ dog }: { dog: DogStay }) {
+/**
+ * Class names supplied by the host page. The form carries no styling of its
+ * own so the case file can dress it in the departure board's CSS module
+ * without a second copy of this component existing to drift out of sync.
+ */
+export type LetterFormUi = {
+  form?: string;
+  label?: string;
+  reply?: string;
+  source?: string;
+};
+
+export function LetterForm({ dog, ui }: { dog: DogStay; ui: LetterFormUi }) {
   const [q, setQ] = useState("Write the case letter.");
   const [letter, setLetter] = useState("");
   const [source, setSource] = useState("");
@@ -32,24 +44,25 @@ export function LetterForm({ dog }: { dog: DogStay }) {
   }
 
   return (
-    <form className="letter" onSubmit={onSubmit}>
-      <h2>Letter from the file</h2>
-      <label htmlFor="q">Question Cortex may answer only from this row</label>
+    <form className={ui.form} onSubmit={onSubmit}>
+      <label className={ui.label} htmlFor="q">
+        Question Cortex may answer only from this row
+      </label>
       <textarea id="q" value={q} onChange={(e) => setQ(e.target.value)} required />
       <button type="submit" disabled={busy}>
         {busy ? "Writing…" : "Ask the warehouse"}
       </button>
       {err && (
-        <p className="reply" role="alert">
+        <p className={ui.reply} role="alert">
           {err}
         </p>
       )}
       {letter && (
-        <div className="reply" aria-live="polite">
+        <div className={ui.reply} aria-live="polite">
           {letter}
         </div>
       )}
-      {source && <pre className="source">{source}</pre>}
+      {source && <pre className={ui.source}>{source}</pre>}
     </form>
   );
 }
