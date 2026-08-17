@@ -24,7 +24,9 @@ The board reads the warehouse live — the header says `LIVE FEED` when it is ta
 
 ## Code
 
-*(GitHub repo embed)*
+{% embed https://github.com/arogya01/beige-dog-bureau %}
+
+The SQL is in `sql/` — `03_findings.sql` is the permutation test, `04_labels.sql` is the breed-label classifier that the whole thesis turns on.
 
 ## How I Built It
 
@@ -33,6 +35,8 @@ Austin open data → stay pairing in Snowflake → `CENSUS` view → Next.js gaz
 `animal_id` is reused across visits, so each intake pairs to the earliest later outcome and unmatched intakes are dogs still in care. Findings are computed in dynamic tables with a 5,000-iteration permutation test per split, so the p-values come out of the warehouse rather than out of a notebook.
 
 Cortex (`llama3.1-70b` via REST) receives only the case-file JSON. If it is down, a template letter is assembled from the same fields. It never invents a name.
+
+Every warehouse call carries a wall-clock budget — 8 seconds for the census, 25 for Cortex. A revoked token fails fast and falls back cleanly, but a *suspended warehouse resuming* does not fail at all; it just takes its time, and an unbounded request dies at the platform's 504 instead of rendering. The failure mode you plan for is the credential dying. The one that actually bites is the credential working slowly.
 
 ## What Went Wrong (the useful part)
 
